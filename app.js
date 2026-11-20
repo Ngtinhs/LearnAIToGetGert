@@ -1,31 +1,461 @@
-const COURSE_IDS=['ccar-p','ccar-f','ccdv-f','ccao-f'];
-const BADGES={'ccar-p':['ARCHITECT PRO','gold'],'ccar-f':['ARCHITECT','purple'],'ccdv-f':['DEVELOPER','green'],'ccao-f':['ASSOCIATE','blue']};
-const app=document.getElementById('app'); let progressData=(()=>{try{return JSON.parse(localStorage.getItem('tstudy-progress')||'{}')}catch{return {}}})(); let courses={}; let activeCourse=null; let questions=[]; let currentIndex=0; let mode='practice'; let filter='all'; let selected={}; let checked={}; let quiz=null;
-const $=(s,r=document)=>r.querySelector(s); const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-function store(){return progressData} function saveStore(v=progressData){localStorage.setItem('tstudy-progress',JSON.stringify(v))} function courseState(id){return progressData[id]||(progressData[id]={learned:[],saved:[],incorrect:[],answers:{}})}
-function progress(id){const c=courses[id],s=courseState(id);return Math.round(s.learned.length/c.questions.length*100)}
-function renderHome(){activeCourse=null;let list=COURSE_IDS.map(id=>courses[id]);app.innerHTML=`<div class="page-head"><div><div class="eyebrow">LEARNING WORKSPACE</div><h1>Your courses <span class="small-note">4</span></h1><div class="muted">Choose a certification and continue your practice.</div></div><input id="courseSearch" class="search" placeholder="⌕  Search courses…"></div><div class="notice">✧ Your progress is saved locally in this browser. You can study all 620 questions across these four Claude certifications.</div><section class="course-grid" id="courseGrid">${list.map(c=>{let p=progress(c.id),b=BADGES[c.id];return `<article class="course-card"><span class="course-badge ${b[1]}">♧ ${b[0]}</span><div class="course-main"><div class="course-title"><img src="assets/${c.id}.png" alt=""><div><h2>${esc(c.title)}</h2></div></div><p class="course-sub">${esc(c.subtitle||`${c.questions.length} practice questions with answer keys and explanations`)}</p><div class="course-meta"><span>☷ ${c.questions.length} questions</span><span>ⓘ ${c.topics?.length||0} topics</span><span>◉ ${c.questions.length} explanations</span></div></div><div class="course-progress"><div class="progress-row"><span>${courseState(c.id).learned.length} / ${c.questions.length} learned</span><strong>${p}%</strong></div><div class="progress"><span style="width:${p}%"></span></div></div><div class="course-actions"><button class="btn primary" data-open="${c.id}">Start learning ↗</button><button class="btn" data-open="${c.id}" data-all="1">View all questions</button></div></article>`}).join('')}</section>`;
-$('#courseSearch').addEventListener('input',e=>{const q=e.target.value.toLowerCase();$('#courseGrid').querySelectorAll('.course-card').forEach(card=>card.hidden=!card.innerText.toLowerCase().includes(q))});app.querySelectorAll('[data-open]').forEach(b=>b.addEventListener('click',()=>openCourse(b.dataset.open)))}
-function openCourse(id){activeCourse=id;questions=courses[id].questions;currentIndex=0;mode='practice';filter='all';selected={};checked={};quiz=null;renderCourse()}
-function renderCourse(){const c=courses[activeCourse],s=courseState(activeCourse),p=progress(activeCourse);app.innerHTML=`<div class="course-view-head"><div><a href="#home" class="back" id="backHome">← All courses</a><div class="eyebrow" style="margin-top:12px">${activeCourse.toUpperCase()}</div><h1>${esc(c.title)}</h1><div class="course-summary">${c.questions.length} practice questions with answer keys and explanations</div></div><div class="course-stats"><div class="stat"><b>${s.learned.length}/${c.questions.length}</b><span>Learned</span></div><div class="stat"><b>${s.saved.length}</b><span>Saved</span></div><div class="stat"><b>${p}%</b><span>Progress</span></div></div></div><div class="toolbar"><div class="tabs"><button class="tab ${mode==='practice'?'active':''}" data-mode="practice">Practice</button><button class="tab ${mode==='review'?'active':''}" data-mode="review">Review answers</button><button class="tab ${mode==='quiz'?'active':''}" data-mode="quiz">Quiz</button></div><div class="filters"><button class="filter ${filter==='all'?'active':''}" data-filter="all">All (${c.questions.length})</button><button class="filter ${filter==='todo'?'active':''}" data-filter="todo">To learn</button><button class="filter ${filter==='learned'?'active':''}" data-filter="learned">Learned</button><button class="filter ${filter==='incorrect'?'active':''}" data-filter="incorrect">Incorrect</button><button class="filter ${filter==='saved'?'active':''}" data-filter="saved">Saved</button></div></div><div id="studyArea"></div>`;
-$('#backHome').onclick=e=>{e.preventDefault();renderHome()};app.querySelectorAll('[data-mode]').forEach(b=>b.onclick=()=>{mode=b.dataset.mode; if(mode==='quiz'){startQuiz()}else renderCourse()});app.querySelectorAll('[data-filter]').forEach(b=>b.onclick=()=>{filter=b.dataset.filter;currentIndex=0;renderCourse()});if(mode==='quiz'){renderQuizIntro()}else renderStudyArea()}
-function filteredQuestions(){const s=courseState(activeCourse);return questions.filter(q=>filter==='all'||(filter==='todo'&&!s.learned.includes(q.id))||(filter==='learned'&&s.learned.includes(q.id))||(filter==='incorrect'&&s.incorrect.includes(q.id))||(filter==='saved'&&s.saved.includes(q.id)))}
-function renderStudyArea(){const qs=filteredQuestions(),area=$('#studyArea');if(!qs.length){area.innerHTML='<div class="empty">No questions in this section yet.</div>';return}if(currentIndex>=qs.length)currentIndex=qs.length-1;const q=qs[currentIndex],s=courseState(activeCourse);area.innerHTML=`<div class="study-layout"><aside class="side-panel"><h3>Questions <span class="muted">${qs.length}</span></h3><div class="number-grid">${qs.map((x,i)=>`<button class="num ${i===currentIndex?'current':''} ${s.learned.includes(x.id)?'learned':''} ${s.saved.includes(x.id)?'saved':''} ${s.incorrect.includes(x.id)?'incorrect':''}" data-index="${i}" title="Question ${i+1}">${i+1}</button>`).join('')}</div><div class="filter-count">Green: learned · Yellow star: saved · Red: incorrect</div><button class="btn small" id="resetProgress">Reset course progress</button></aside><section class="question-panel">${questionMarkup(q,currentIndex,qs.length,s)}</section></div>`;
-area.querySelectorAll('[data-index]').forEach(b=>b.onclick=()=>{currentIndex=Number(b.dataset.index);renderStudyArea()});$('#resetProgress').onclick=()=>{if(confirm('Reset learned, saved and incorrect status for this course?')){delete progressData[activeCourse];saveStore();renderCourse()}};bindQuestion(q,qs)}
-function questionMarkup(q,index,total,s){const isReview=mode==='review',reveal=isReview||checked[q.id]||false,sel=selected[q.id]||[],it=q.interaction||{},isSaved=s.saved.includes(q.id),isLearned=s.learned.includes(q.id);return `<div class="q-top"><div><div class="q-kicker">QUESTION ${index+1} / ${total}</div><div class="q-kind">${esc(it.type?.replaceAll('_',' ')||'Practice')} · ${isReview?'Answer review':'Choose your answer, then check'}</div></div><div class="q-actions"><button class="btn small" id="saveQ">${isSaved?'★ Saved':'☆ Save'}</button><button class="btn small" id="copyQ">Copy</button></div></div><div class="q-prompt">${renderBlocks(q.prompt)}</div>${renderInteraction(q,sel,reveal)}<div class="answer-area">${!reveal?'<button class="btn primary" id="checkAnswer">Check answer</button>':''}<button class="btn" id="revealAnswer">${reveal?'Hide answer':'Reveal answer'}</button><label class="btn"><input id="learnToggle" type="checkbox" ${isLearned?'checked':''} style="accent-color:#8b7cff;margin-right:7px">Mark as learned</label></div>${reveal?renderFeedback(q,sel,isReview):''}<div class="question-nav"><button class="btn" id="prevQ" ${index===0?'disabled':''}>← Previous</button><span class="small-note">${index+1} of ${total}</span><button class="btn primary" id="nextQ" ${index===total-1?'disabled':''}>Next →</button></div>`}
-function renderBlocks(blocks){return (blocks||[]).map(b=>{if(b.type==='heading')return `<h3>${esc(b.text)}</h3>`;if(b.type==='list')return `<ul>${(b.items||[]).map(x=>`<li>${esc(typeof x==='string'?x:x.text)}</li>`).join('')}</ul>`;if(b.type==='callout')return `<div class="feedback">${esc(b.text||'')}</div>`;return `<p>${esc(b.text||'')}</p>`}).join('')}
-function renderInteraction(q,sel,reveal){const it=q.interaction||{};if(['single_choice','multiple_choice'].includes(it.type)){return `<div class="option-list">${(it.options||[]).map(o=>{let chosen=sel.includes(o.id),correct=(it.correctOptionIds||[]).includes(o.id);let cls=chosen?'selected':'';if(reveal&&correct)cls='correct';else if(reveal&&chosen&&!correct)cls='wrong';return `<button class="option ${cls}" data-option="${o.id}" ${reveal?'disabled':''}><span class="option-label">${o.id.toUpperCase()}</span><span>${esc(o.label)}</span></button>`}).join('')}</div>`}
-if(it.type==='true_false'){return `<div class="option-list">${(it.statements||[]).map(st=>`<div class="option"><span class="flex-1">${esc(st.label)}</span><select data-statement="${st.id}" ${reveal?'disabled':''}><option value="">Choose…</option><option value="true" ${sel[st.id]===true?'selected':''}>True</option><option value="false" ${sel[st.id]===false?'selected':''}>False</option></select>${reveal?`<b>${it.correctValues?.[st.id]?'True':'False'}</b>`:''}</div>`).join('')}</div>`}
-if(it.type==='matching'){return `<div class="option-list">${(it.prompts||[]).map(st=>`<div class="option"><span class="flex-1">${esc(st.label)}</span><select data-match="${st.id}" ${reveal?'disabled':''}><option value="">Choose…</option>${(it.choices||[]).map(o=>`<option value="${o.id}" ${sel[st.id]===o.id?'selected':''}>${esc(o.id.toUpperCase()+'. '+o.label)}</option>`).join('')}</select>${reveal?`<b>${esc(it.correctPairs?.[st.id]||'')}</b>`:''}</div>`).join('')}</div>`}
-return `<div class="feedback">Unsupported question format: ${esc(it.type)}</div>`}
-function renderFeedback(q,sel,reviewOnly=false){const it=q.interaction||{};let correct=false,details='';if(['single_choice','multiple_choice'].includes(it.type)){const a=[...(it.correctOptionIds||[])].sort(),b=[...sel].sort();correct=a.length===b.length&&a.every((v,i)=>v===b[i]);details=(q.optionExplanations||[]).map(x=>`<div class="option-reason"><b>${esc(x.optionId?.toUpperCase()||'')}</b> ${renderBlocks(x.content)}</div>`).join('')}else if(it.type==='true_false'){const ids=Object.keys(it.correctValues||{});correct=ids.every(id=>sel[id]===it.correctValues[id]);}else if(it.type==='matching'){const ids=Object.keys(it.correctPairs||{});correct=ids.every(id=>sel[id]===it.correctPairs[id]);}
-return `<div class="feedback ${reviewOnly?'':(correct?'good':'bad')}"><h4>${reviewOnly?'Answer & explanation':(correct?'✓ Correct answer':'Answer key')}</h4>${renderBlocks(q.explanation)}${details}</div>`}
-function bindQuestion(q,qs){const s=courseState(activeCourse),it=q.interaction||{};$('#saveQ').onclick=()=>{toggle(s.saved,q.id);saveStore(store());renderStudyArea()};$('#copyQ').onclick=()=>{const txt=[q.title,...(q.prompt||[]).map(x=>x.text),...(it.options||[]).map(x=>x.id+'. '+x.label)].join('\n');navigator.clipboard?.writeText(txt).then(()=>alert('Copied')).catch(()=>{});};app.querySelectorAll('[data-option]').forEach(b=>b.onclick=()=>{let a=selected[q.id]||[];if(it.type==='single_choice')a=[b.dataset.option];else a=a.includes(b.dataset.option)?a.filter(x=>x!==b.dataset.option):[...a,b.dataset.option];selected[q.id]=a;renderStudyArea()});app.querySelectorAll('[data-statement]').forEach(el=>el.onchange=()=>{selected[q.id]||={};selected[q.id][el.dataset.statement]=el.value==='true'?true:el.value==='false'?false:null});app.querySelectorAll('[data-match]').forEach(el=>el.onchange=()=>{selected[q.id]||={};selected[q.id][el.dataset.match]=el.value});$('#checkAnswer')?.addEventListener('click',()=>{const ans=selected[q.id]||[];const complete=it.type==='true_false'?Object.keys(it.correctValues||{}).every(k=>ans[k]!==undefined&&ans[k]!==null):it.type==='matching'?Object.keys(it.correctPairs||{}).every(k=>!!ans[k]):ans.length>0;if(!complete){alert('Please answer the question before checking.');return}checked[q.id]=true;const fb=renderFeedback(q,ans);const good=fb.includes('good');if(good){s.incorrect=s.incorrect.filter(x=>x!==q.id)}else if(!s.incorrect.includes(q.id))s.incorrect.push(q.id);s.answers[q.id]=ans;saveStore(store());renderStudyArea()});$('#revealAnswer').onclick=()=>{if(checked[q.id])checked[q.id]=false;else checked[q.id]=true;renderStudyArea()};$('#learnToggle').onchange=e=>{toggle(s.learned,q.id,e.target.checked);saveStore(store());renderCourse()};$('#prevQ').onclick=()=>{currentIndex--;renderStudyArea()};$('#nextQ').onclick=()=>{currentIndex++;renderStudyArea()}}
-function toggle(arr,id,force){const i=arr.indexOf(id);if(force===true&&i<0)arr.push(id);else if(force===false&&i>=0)arr.splice(i,1);else if(i>=0)arr.splice(i,1);else arr.push(id)}
-function startQuiz(){const all=filteredQuestions();quiz={items:[...all].sort(()=>Math.random()-.5).slice(0,Math.min(20,all.length)),index:0,answers:{},submitted:false};renderQuizIntro()}
-function renderQuizIntro(){const area=$('#studyArea');if(!quiz)startQuiz();area.innerHTML=`<div class="quiz-intro"><div class="eyebrow">EXAM SIMULATION</div><h2>Ready to test your knowledge?</h2><p class="muted">A randomized set of up to 20 questions from the selected question filter.</p><div class="quiz-controls"><label>Questions <input id="quizSize" type="number" min="1" max="${filteredQuestions().length}" value="20"></label><button class="btn primary" id="beginQuiz">Start quiz</button></div><p class="small-note">Answers and explanations will be shown after you submit the quiz.</p></div>`;$('#beginQuiz').onclick=()=>{const n=Math.max(1,Math.min(Number($('#quizSize').value)||20,filteredQuestions().length));quiz.items=[...filteredQuestions()].sort(()=>Math.random()-.5).slice(0,n);quiz.index=0;quiz.answers={};quiz.submitted=false;renderQuizQuestion()}}
-function renderQuizQuestion(){const area=$('#studyArea');const q=quiz.items[quiz.index];const sel=quiz.answers[q.id]||[];area.innerHTML=`<section class="question-panel"><div class="q-top"><div class="q-kicker">QUIZ · QUESTION ${quiz.index+1} / ${quiz.items.length}</div><span class="small-note">${Object.keys(quiz.answers).length} answered</span></div><div class="q-prompt">${renderBlocks(q.prompt)}</div>${renderInteraction(q,sel,false)}<div class="question-nav"><button class="btn" id="quizPrev" ${quiz.index===0?'disabled':''}>← Previous</button><button class="btn" id="quizNext" ${quiz.index===quiz.items.length-1?'disabled':''}>Next →</button></div><div class="answer-area"><button class="btn primary" id="submitQuiz">Submit quiz</button></div></section>`;area.querySelectorAll('[data-option]').forEach(b=>b.onclick=()=>{let a=quiz.answers[q.id]||[];if(q.interaction.type==='single_choice')a=[b.dataset.option];else a=a.includes(b.dataset.option)?a.filter(x=>x!==b.dataset.option):[...a,b.dataset.option];quiz.answers[q.id]=a;renderQuizQuestion()});area.querySelectorAll('[data-statement]').forEach(el=>el.onchange=()=>{quiz.answers[q.id]||={};quiz.answers[q.id][el.dataset.statement]=el.value==='true'});area.querySelectorAll('[data-match]').forEach(el=>el.onchange=()=>{quiz.answers[q.id]||={};quiz.answers[q.id][el.dataset.match]=el.value});$('#quizPrev').onclick=()=>{quiz.index--;renderQuizQuestion()};$('#quizNext').onclick=()=>{quiz.index++;renderQuizQuestion()};$('#submitQuiz').onclick=()=>{if(confirm('Submit this quiz and see your results?'))renderQuizResult()}}
-function isCorrect(q,ans){const it=q.interaction;if(['single_choice','multiple_choice'].includes(it.type)){const a=[...(it.correctOptionIds||[])].sort(),b=[...(ans||[])].sort();return a.length===b.length&&a.every((v,i)=>v===b[i])}if(it.type==='true_false')return Object.keys(it.correctValues||{}).every(k=>ans?.[k]===it.correctValues[k]);if(it.type==='matching')return Object.keys(it.correctPairs||{}).every(k=>ans?.[k]===it.correctPairs[k]);return false}
-function renderQuizResult(){const correct=quiz.items.filter(q=>isCorrect(q,quiz.answers[q.id])).length;const pct=Math.round(correct/quiz.items.length*100);$('#studyArea').innerHTML=`<div class="quiz-intro"><div class="eyebrow">QUIZ COMPLETE</div><div class="quiz-result">${correct} / ${quiz.items.length}</div><h2>${pct}% correct</h2><p class="muted">${pct>=80?'Great work. Keep practicing to maintain your progress.':'Review the explanations below and try again.'}</p><button class="btn primary" id="reviewQuiz">Review answers</button> <button class="btn" id="retryQuiz">Try another quiz</button></div><div style="margin-top:14px;display:grid;gap:12px">${quiz.items.map((q,i)=>`<div class="question-panel"><b>Question ${i+1} · ${isCorrect(q,quiz.answers[q.id])?'✓ Correct':'✕ Incorrect'}</b><div class="q-prompt">${renderBlocks(q.prompt)}</div>${renderFeedback(q,quiz.answers[q.id]||[])}</div>`).join('')}</div>`;$('#reviewQuiz').onclick=()=>{mode='review';quiz.items.forEach(q=>{selected[q.id]=quiz.answers[q.id]||[];checked[q.id]=true});currentIndex=0;renderCourse()};$('#retryQuiz').onclick=()=>{startQuiz()}}
-async function init(){try{for(const id of COURSE_IDS){const r=await fetch(`data/${id}.json`);if(!r.ok)throw new Error(`Could not load ${id}.json`);courses[id]=await r.json()}renderHome()}catch(e){app.innerHTML=`<div class="empty"><h2>Could not load study data</h2><p>${esc(e.message)}</p><p class="small-note">Run this site through a local web server or deploy it to Vercel. Opening index.html directly may block JSON loading.</p></div>`}}
-document.getElementById('homeBtn').onclick=()=>renderHome();init();
+const COURSE_IDS = ["ccar-p", "ccar-f", "ccdv-f", "ccao-f"];
+const BADGES = {
+  "ccar-p": ["ARCHITECT PRO", "gold"],
+  "ccar-f": ["ARCHITECT", "purple"],
+  "ccdv-f": ["DEVELOPER", "green"],
+  "ccao-f": ["ASSOCIATE", "blue"],
+};
+const app = document.getElementById("app");
+let progressData = (() => {
+  try {
+    return JSON.parse(localStorage.getItem("tstudy-progress") || "{}");
+  } catch {
+    return {};
+  }
+})();
+let courses = {};
+let activeCourse = null;
+let questions = [];
+let currentIndex = 0;
+let mode = "practice";
+let filter = "all";
+let selected = {};
+let checked = {};
+let quiz = null;
+const $ = (s, r = document) => r.querySelector(s);
+const esc = (s) =>
+  String(s ?? "").replace(
+    /[&<>"']/g,
+    (c) =>
+      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[
+        c
+      ],
+  );
+function store() {
+  return progressData;
+}
+function saveStore(v = progressData) {
+  localStorage.setItem("tstudy-progress", JSON.stringify(v));
+}
+function courseState(id) {
+  return (
+    progressData[id] ||
+    (progressData[id] = { learned: [], saved: [], incorrect: [], answers: {} })
+  );
+}
+function progress(id) {
+  const c = courses[id],
+    s = courseState(id);
+  return Math.round((s.learned.length / c.questions.length) * 100);
+}
+function renderHome() {
+  activeCourse = null;
+  let list = COURSE_IDS.map((id) => courses[id]);
+  app.innerHTML = `<div class="page-head"><div><div class="eyebrow">LEARNING WORKSPACE</div><h1>Your courses <span class="small-note">4</span></h1><div class="muted">Choose a certification and continue your practice.</div></div><input id="courseSearch" class="search" placeholder="⌕  Search courses…"></div><div class="notice">✧ Your progress is saved locally in this browser. You can study all 620 questions across these four Claude certifications.</div><section class="course-grid" id="courseGrid">${list
+    .map((c) => {
+      let p = progress(c.id),
+        b = BADGES[c.id];
+      return `<article class="course-card"><span class="course-badge ${b[1]}">♧ ${b[0]}</span><div class="course-main"><div class="course-title"><img src="assets/${c.id}.png" alt=""><div><h2>${esc(c.title)}</h2></div></div><p class="course-sub">${esc(c.subtitle || `${c.questions.length} practice questions with answer keys and explanations`)}</p><div class="course-meta"><span>☷ ${c.questions.length} questions</span><span>ⓘ ${c.topics?.length || 0} topics</span><span>◉ ${c.questions.length} explanations</span></div></div><div class="course-progress"><div class="progress-row"><span>${courseState(c.id).learned.length} / ${c.questions.length} learned</span><strong>${p}%</strong></div><div class="progress"><span style="width:${p}%"></span></div></div><div class="course-actions"><button class="btn primary" data-open="${c.id}">Start learning ↗</button><button class="btn" data-open="${c.id}" data-all="1">View all questions</button></div></article>`;
+    })
+    .join("")}</section>`;
+  $("#courseSearch").addEventListener("input", (e) => {
+    const q = e.target.value.toLowerCase();
+    $("#courseGrid")
+      .querySelectorAll(".course-card")
+      .forEach(
+        (card) => (card.hidden = !card.innerText.toLowerCase().includes(q)),
+      );
+  });
+  app
+    .querySelectorAll("[data-open]")
+    .forEach((b) =>
+      b.addEventListener("click", () => openCourse(b.dataset.open)),
+    );
+}
+function openCourse(id) {
+  activeCourse = id;
+  questions = courses[id].questions;
+  currentIndex = 0;
+  mode = "practice";
+  filter = "all";
+  selected = {};
+  checked = {};
+  quiz = null;
+  renderCourse();
+}
+function renderCourse() {
+  const c = courses[activeCourse],
+    s = courseState(activeCourse),
+    p = progress(activeCourse);
+  app.innerHTML = `<div class="course-view-head"><div><a href="#home" class="back" id="backHome">← All courses</a><div class="eyebrow" style="margin-top:12px">${activeCourse.toUpperCase()}</div><h1>${esc(c.title)}</h1><div class="course-summary">${c.questions.length} practice questions with answer keys and explanations</div></div><div class="course-stats"><div class="stat"><b>${s.learned.length}/${c.questions.length}</b><span>Learned</span></div><div class="stat"><b>${s.saved.length}</b><span>Saved</span></div><div class="stat"><b>${p}%</b><span>Progress</span></div></div></div><div class="toolbar"><div class="tabs"><button class="tab ${mode === "practice" ? "active" : ""}" data-mode="practice">Practice</button><button class="tab ${mode === "review" ? "active" : ""}" data-mode="review">Review answers</button><button class="tab ${mode === "quiz" ? "active" : ""}" data-mode="quiz">Quiz</button></div><div class="filters"><button class="filter ${filter === "all" ? "active" : ""}" data-filter="all">All (${c.questions.length})</button><button class="filter ${filter === "todo" ? "active" : ""}" data-filter="todo">To learn</button><button class="filter ${filter === "learned" ? "active" : ""}" data-filter="learned">Learned</button><button class="filter ${filter === "incorrect" ? "active" : ""}" data-filter="incorrect">Incorrect</button><button class="filter ${filter === "saved" ? "active" : ""}" data-filter="saved">Saved</button></div></div><div id="studyArea"></div>`;
+  $("#backHome").onclick = (e) => {
+    e.preventDefault();
+    renderHome();
+  };
+  app.querySelectorAll("[data-mode]").forEach(
+    (b) =>
+      (b.onclick = () => {
+        mode = b.dataset.mode;
+        if (mode === "quiz") {
+          startQuiz();
+        } else renderCourse();
+      }),
+  );
+  app.querySelectorAll("[data-filter]").forEach(
+    (b) =>
+      (b.onclick = () => {
+        filter = b.dataset.filter;
+        currentIndex = 0;
+        renderCourse();
+      }),
+  );
+  if (mode === "quiz") {
+    renderQuizIntro();
+  } else renderStudyArea();
+}
+function filteredQuestions() {
+  const s = courseState(activeCourse);
+  return questions.filter(
+    (q) =>
+      filter === "all" ||
+      (filter === "todo" && !s.learned.includes(q.id)) ||
+      (filter === "learned" && s.learned.includes(q.id)) ||
+      (filter === "incorrect" && s.incorrect.includes(q.id)) ||
+      (filter === "saved" && s.saved.includes(q.id)),
+  );
+}
+function renderStudyArea() {
+  const qs = filteredQuestions(),
+    area = $("#studyArea");
+  if (!qs.length) {
+    area.innerHTML =
+      '<div class="empty">No questions in this section yet.</div>';
+    return;
+  }
+  if (currentIndex >= qs.length) currentIndex = qs.length - 1;
+  const q = qs[currentIndex],
+    s = courseState(activeCourse);
+  area.innerHTML = `<div class="study-layout"><aside class="side-panel"><h3>Questions <span class="muted">${qs.length}</span></h3><div class="number-grid">${qs.map((x, i) => `<button class="num ${i === currentIndex ? "current" : ""} ${s.learned.includes(x.id) ? "learned" : ""} ${s.saved.includes(x.id) ? "saved" : ""} ${s.incorrect.includes(x.id) ? "incorrect" : ""}" data-index="${i}" title="Question ${i + 1}">${i + 1}</button>`).join("")}</div><div class="filter-count">Green: learned · Yellow star: saved · Red: incorrect</div><button class="btn small" id="resetProgress">Reset course progress</button></aside><section class="question-panel">${questionMarkup(q, currentIndex, qs.length, s)}</section></div>`;
+  area.querySelectorAll("[data-index]").forEach(
+    (b) =>
+      (b.onclick = () => {
+        currentIndex = Number(b.dataset.index);
+        renderStudyArea();
+      }),
+  );
+  $("#resetProgress").onclick = () => {
+    if (confirm("Reset learned, saved and incorrect status for this course?")) {
+      delete progressData[activeCourse];
+      saveStore();
+      renderCourse();
+    }
+  };
+  bindQuestion(q, qs);
+}
+function questionMarkup(q, index, total, s) {
+  const isReview = mode === "review",
+    reveal = isReview || checked[q.id] || false,
+    sel = selected[q.id] || [],
+    it = q.interaction || {},
+    isSaved = s.saved.includes(q.id),
+    isLearned = s.learned.includes(q.id);
+  return `<div class="q-top"><div><div class="q-kicker">QUESTION ${index + 1} / ${total}</div><div class="q-kind">${esc(it.type?.replaceAll("_", " ") || "Practice")} · ${isReview ? "Answer review" : "Choose your answer, then check"}</div></div><div class="q-actions"><button class="btn small" id="saveQ">${isSaved ? "★ Saved" : "☆ Save"}</button><button class="btn small" id="copyQ">Copy</button></div></div><div class="q-prompt">${renderBlocks(q.prompt)}${viBlocks(q.question_vi)}</div>${renderInteraction(q, sel, reveal)}<div class="answer-area">${!reveal ? '<button class="btn primary" id="checkAnswer">Check answer</button>' : ""}<button class="btn" id="revealAnswer">${reveal ? "Hide answer" : "Reveal answer"}</button><label class="btn"><input id="learnToggle" type="checkbox" ${isLearned ? "checked" : ""} style="accent-color:#8b7cff;margin-right:7px">Mark as learned</label></div>${reveal ? renderFeedback(q, sel, isReview) : ""}<div class="question-nav"><button class="btn" id="prevQ" ${index === 0 ? "disabled" : ""}>← Previous</button><span class="small-note">${index + 1} of ${total}</span><button class="btn primary" id="nextQ" ${index === total - 1 ? "disabled" : ""}>Next →</button></div>`;
+}
+function renderBlocks(blocks) {
+  return (blocks || [])
+    .map((b) => {
+      if (b.type === "heading") return `<h3>${esc(b.text)}</h3>`;
+      if (b.type === "list")
+        return `<ul>${(b.items || []).map((x) => `<li>${esc(typeof x === "string" ? x : x.text)}</li>`).join("")}</ul>`;
+      if (b.type === "callout")
+        return `<div class="feedback">${esc(b.text || "")}</div>`;
+      return `<p>${esc(b.text || "")}</p>`;
+    })
+    .join("");
+}
+// Vietnamese translation helpers: render nothing when a translation is missing.
+function viBlocks(blocks) {
+  return Array.isArray(blocks) &&
+    blocks.some((b) => b && (b.text || b.items?.length))
+    ? `<div class="vi-trans" lang="vi">${renderBlocks(blocks)}</div>`
+    : "";
+}
+function viText(text) {
+  return typeof text === "string" && text.trim()
+    ? `<div class="vi-trans" lang="vi">${esc(text)}</div>`
+    : "";
+}
+function viChoices(q) {
+  const it = q.interaction || {},
+    m = q.choices_vi || {},
+    cs = (it.choices || []).filter((o) => m[o.id]);
+  return cs.length
+    ? `<div class="vi-trans vi-choices" lang="vi">${cs.map((o) => `<span><b>${esc(o.id.toUpperCase())}.</b> ${esc(m[o.id])}</span>`).join("")}</div>`
+    : "";
+}
+function renderInteraction(q, sel, reveal) {
+  const it = q.interaction || {};
+  if (["single_choice", "multiple_choice"].includes(it.type)) {
+    return `<div class="option-list">${(it.options || [])
+      .map((o) => {
+        let chosen = sel.includes(o.id),
+          correct = (it.correctOptionIds || []).includes(o.id);
+        let cls = chosen ? "selected" : "";
+        if (reveal && correct) cls = "correct";
+        else if (reveal && chosen && !correct) cls = "wrong";
+        return `<button class="option ${cls}" data-option="${o.id}" ${reveal ? "disabled" : ""}><span class="option-label">${o.id.toUpperCase()}</span><span class="option-text">${esc(o.label)}${viText(q.options_vi?.[o.id])}</span></button>`;
+      })
+      .join("")}</div>`;
+  }
+  if (it.type === "true_false") {
+    return `<div class="option-list">${(it.statements || []).map((st) => `<div class="option"><span class="flex-1">${esc(st.label)}${viText(q.options_vi?.[st.id])}</span><select data-statement="${st.id}" ${reveal ? "disabled" : ""}><option value="">Choose…</option><option value="true" ${sel[st.id] === true ? "selected" : ""}>True</option><option value="false" ${sel[st.id] === false ? "selected" : ""}>False</option></select>${reveal ? `<b>${it.correctValues?.[st.id] ? "True" : "False"}</b>` : ""}</div>`).join("")}</div>`;
+  }
+  if (it.type === "matching") {
+    return `<div class="option-list">${(it.prompts || []).map((st) => `<div class="option"><span class="flex-1">${esc(st.label)}${viText(q.options_vi?.[st.id])}</span><select data-match="${st.id}" ${reveal ? "disabled" : ""}><option value="">Choose…</option>${(it.choices || []).map((o) => `<option value="${o.id}" ${sel[st.id] === o.id ? "selected" : ""}>${esc(o.id.toUpperCase() + ". " + o.label)}</option>`).join("")}</select>${reveal ? `<b>${esc(it.correctPairs?.[st.id] || "")}</b>` : ""}</div>`).join("")}${viChoices(q)}</div>`;
+  }
+  return `<div class="feedback">Unsupported question format: ${esc(it.type)}</div>`;
+}
+function renderFeedback(q, sel, reviewOnly = false) {
+  const it = q.interaction || {};
+  let correct = false,
+    details = "";
+  if (["single_choice", "multiple_choice"].includes(it.type)) {
+    const a = [...(it.correctOptionIds || [])].sort(),
+      b = [...sel].sort();
+    correct = a.length === b.length && a.every((v, i) => v === b[i]);
+    details = (q.optionExplanations || [])
+      .map(
+        (x) =>
+          `<div class="option-reason"><b>${esc(x.optionId?.toUpperCase() || "")}</b> ${renderBlocks(x.content)}${viBlocks(q.optionExplanations_vi?.[x.optionId])}</div>`,
+      )
+      .join("");
+  } else if (it.type === "true_false") {
+    const ids = Object.keys(it.correctValues || {});
+    correct = ids.every((id) => sel[id] === it.correctValues[id]);
+  } else if (it.type === "matching") {
+    const ids = Object.keys(it.correctPairs || {});
+    correct = ids.every((id) => sel[id] === it.correctPairs[id]);
+  }
+  return `<div class="feedback ${reviewOnly ? "" : correct ? "good" : "bad"}"><h4>${reviewOnly ? "Answer & explanation" : correct ? "✓ Correct answer" : "Answer key"}</h4>${renderBlocks(q.explanation)}${viBlocks(q.explanation_vi)}${details}</div>`;
+}
+function bindQuestion(q, qs) {
+  const s = courseState(activeCourse),
+    it = q.interaction || {};
+  $("#saveQ").onclick = () => {
+    toggle(s.saved, q.id);
+    saveStore(store());
+    renderStudyArea();
+  };
+  $("#copyQ").onclick = () => {
+    const txt = [
+      q.title,
+      ...(q.prompt || []).map((x) => x.text),
+      ...(it.options || []).map((x) => x.id + ". " + x.label),
+    ].join("\n");
+    navigator.clipboard
+      ?.writeText(txt)
+      .then(() => alert("Copied"))
+      .catch(() => {});
+  };
+  app.querySelectorAll("[data-option]").forEach(
+    (b) =>
+      (b.onclick = () => {
+        let a = selected[q.id] || [];
+        if (it.type === "single_choice") a = [b.dataset.option];
+        else
+          a = a.includes(b.dataset.option)
+            ? a.filter((x) => x !== b.dataset.option)
+            : [...a, b.dataset.option];
+        selected[q.id] = a;
+        renderStudyArea();
+      }),
+  );
+  app.querySelectorAll("[data-statement]").forEach(
+    (el) =>
+      (el.onchange = () => {
+        selected[q.id] ||= {};
+        selected[q.id][el.dataset.statement] =
+          el.value === "true" ? true : el.value === "false" ? false : null;
+      }),
+  );
+  app.querySelectorAll("[data-match]").forEach(
+    (el) =>
+      (el.onchange = () => {
+        selected[q.id] ||= {};
+        selected[q.id][el.dataset.match] = el.value;
+      }),
+  );
+  $("#checkAnswer")?.addEventListener("click", () => {
+    const ans = selected[q.id] || [];
+    const complete =
+      it.type === "true_false"
+        ? Object.keys(it.correctValues || {}).every(
+            (k) => ans[k] !== undefined && ans[k] !== null,
+          )
+        : it.type === "matching"
+          ? Object.keys(it.correctPairs || {}).every((k) => !!ans[k])
+          : ans.length > 0;
+    if (!complete) {
+      alert("Please answer the question before checking.");
+      return;
+    }
+    checked[q.id] = true;
+    const good = isCorrect(q, ans);
+    if (good) {
+      s.incorrect = s.incorrect.filter((x) => x !== q.id);
+    } else if (!s.incorrect.includes(q.id)) s.incorrect.push(q.id);
+    s.answers[q.id] = ans;
+    saveStore(store());
+    renderStudyArea();
+  });
+  $("#revealAnswer").onclick = () => {
+    if (checked[q.id]) checked[q.id] = false;
+    else checked[q.id] = true;
+    renderStudyArea();
+  };
+  $("#learnToggle").onchange = (e) => {
+    toggle(s.learned, q.id, e.target.checked);
+    saveStore(store());
+    renderCourse();
+  };
+  $("#prevQ").onclick = () => {
+    currentIndex--;
+    renderStudyArea();
+  };
+  $("#nextQ").onclick = () => {
+    currentIndex++;
+    renderStudyArea();
+  };
+}
+function toggle(arr, id, force) {
+  const i = arr.indexOf(id);
+  if (force === true && i < 0) arr.push(id);
+  else if (force === false && i >= 0) arr.splice(i, 1);
+  else if (i >= 0) arr.splice(i, 1);
+  else arr.push(id);
+}
+function startQuiz() {
+  const all = filteredQuestions();
+  quiz = {
+    items: [...all]
+      .sort(() => Math.random() - 0.5)
+      .slice(0, Math.min(20, all.length)),
+    index: 0,
+    answers: {},
+    submitted: false,
+  };
+  renderQuizIntro();
+}
+function renderQuizIntro() {
+  const area = $("#studyArea");
+  if (!quiz) startQuiz();
+  area.innerHTML = `<div class="quiz-intro"><div class="eyebrow">EXAM SIMULATION</div><h2>Ready to test your knowledge?</h2><p class="muted">A randomized set of up to 20 questions from the selected question filter.</p><div class="quiz-controls"><label>Questions <input id="quizSize" type="number" min="1" max="${filteredQuestions().length}" value="20"></label><button class="btn primary" id="beginQuiz">Start quiz</button></div><p class="small-note">Answers and explanations will be shown after you submit the quiz.</p></div>`;
+  $("#beginQuiz").onclick = () => {
+    const n = Math.max(
+      1,
+      Math.min(Number($("#quizSize").value) || 20, filteredQuestions().length),
+    );
+    quiz.items = [...filteredQuestions()]
+      .sort(() => Math.random() - 0.5)
+      .slice(0, n);
+    quiz.index = 0;
+    quiz.answers = {};
+    quiz.submitted = false;
+    renderQuizQuestion();
+  };
+}
+function renderQuizQuestion() {
+  const area = $("#studyArea");
+  const q = quiz.items[quiz.index];
+  const sel = quiz.answers[q.id] || [];
+  area.innerHTML = `<section class="question-panel"><div class="q-top"><div class="q-kicker">QUIZ · QUESTION ${quiz.index + 1} / ${quiz.items.length}</div><span class="small-note">${Object.keys(quiz.answers).length} answered</span></div><div class="q-prompt">${renderBlocks(q.prompt)}${viBlocks(q.question_vi)}</div>${renderInteraction(q, sel, false)}<div class="question-nav"><button class="btn" id="quizPrev" ${quiz.index === 0 ? "disabled" : ""}>← Previous</button><button class="btn" id="quizNext" ${quiz.index === quiz.items.length - 1 ? "disabled" : ""}>Next →</button></div><div class="answer-area"><button class="btn primary" id="submitQuiz">Submit quiz</button></div></section>`;
+  area.querySelectorAll("[data-option]").forEach(
+    (b) =>
+      (b.onclick = () => {
+        let a = quiz.answers[q.id] || [];
+        if (q.interaction.type === "single_choice") a = [b.dataset.option];
+        else
+          a = a.includes(b.dataset.option)
+            ? a.filter((x) => x !== b.dataset.option)
+            : [...a, b.dataset.option];
+        quiz.answers[q.id] = a;
+        renderQuizQuestion();
+      }),
+  );
+  area.querySelectorAll("[data-statement]").forEach(
+    (el) =>
+      (el.onchange = () => {
+        quiz.answers[q.id] ||= {};
+        quiz.answers[q.id][el.dataset.statement] = el.value === "true";
+      }),
+  );
+  area.querySelectorAll("[data-match]").forEach(
+    (el) =>
+      (el.onchange = () => {
+        quiz.answers[q.id] ||= {};
+        quiz.answers[q.id][el.dataset.match] = el.value;
+      }),
+  );
+  $("#quizPrev").onclick = () => {
+    quiz.index--;
+    renderQuizQuestion();
+  };
+  $("#quizNext").onclick = () => {
+    quiz.index++;
+    renderQuizQuestion();
+  };
+  $("#submitQuiz").onclick = () => {
+    if (confirm("Submit this quiz and see your results?")) renderQuizResult();
+  };
+}
+function isCorrect(q, ans) {
+  const it = q.interaction;
+  if (["single_choice", "multiple_choice"].includes(it.type)) {
+    const a = [...(it.correctOptionIds || [])].sort(),
+      b = [...(ans || [])].sort();
+    return a.length === b.length && a.every((v, i) => v === b[i]);
+  }
+  if (it.type === "true_false")
+    return Object.keys(it.correctValues || {}).every(
+      (k) => ans?.[k] === it.correctValues[k],
+    );
+  if (it.type === "matching")
+    return Object.keys(it.correctPairs || {}).every(
+      (k) => ans?.[k] === it.correctPairs[k],
+    );
+  return false;
+}
+function renderQuizResult() {
+  const correct = quiz.items.filter((q) =>
+    isCorrect(q, quiz.answers[q.id]),
+  ).length;
+  const pct = Math.round((correct / quiz.items.length) * 100);
+  $("#studyArea").innerHTML =
+    `<div class="quiz-intro"><div class="eyebrow">QUIZ COMPLETE</div><div class="quiz-result">${correct} / ${quiz.items.length}</div><h2>${pct}% correct</h2><p class="muted">${pct >= 80 ? "Great work. Keep practicing to maintain your progress." : "Review the explanations below and try again."}</p><button class="btn primary" id="reviewQuiz">Review answers</button> <button class="btn" id="retryQuiz">Try another quiz</button></div><div style="margin-top:14px;display:grid;gap:12px">${quiz.items.map((q, i) => `<div class="question-panel"><b>Question ${i + 1} · ${isCorrect(q, quiz.answers[q.id]) ? "✓ Correct" : "✕ Incorrect"}</b><div class="q-prompt">${renderBlocks(q.prompt)}${viBlocks(q.question_vi)}</div>${renderFeedback(q, quiz.answers[q.id] || [])}</div>`).join("")}</div>`;
+  $("#reviewQuiz").onclick = () => {
+    mode = "review";
+    quiz.items.forEach((q) => {
+      selected[q.id] = quiz.answers[q.id] || [];
+      checked[q.id] = true;
+    });
+    currentIndex = 0;
+    renderCourse();
+  };
+  $("#retryQuiz").onclick = () => {
+    startQuiz();
+  };
+}
+async function init() {
+  try {
+    for (const id of COURSE_IDS) {
+      const r = await fetch(`data/${id}.json`);
+      if (!r.ok) throw new Error(`Could not load ${id}.json`);
+      courses[id] = await r.json();
+    }
+    renderHome();
+  } catch (e) {
+    app.innerHTML = `<div class="empty"><h2>Could not load study data</h2><p>${esc(e.message)}</p><p class="small-note">Run this site through a local web server or deploy it to Vercel. Opening index.html directly may block JSON loading.</p></div>`;
+  }
+}
+document.getElementById("homeBtn").onclick = () => renderHome();
+init();
